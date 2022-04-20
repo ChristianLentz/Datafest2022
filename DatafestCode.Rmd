@@ -1,0 +1,129 @@
+---
+title: "Datafest"
+author: "Christian Lentz"
+date: "3/25/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r - Packages}
+library(ggplot2)
+library(ggmosaic)
+library(readxl)
+library(readr)
+library(dplyr)
+library(broom) 
+library(stringr)
+```
+
+
+# Load Data 
+
+
+```{r - Load Data, message = FALSE}
+# one player
+EDAplayer <- read_csv('player-6427031 copy.csv')
+NROW(EDAplayer)
+NCOL(EDAplayer)
+
+# s5 scores
+S5Scores <- read_csv('S5_scores_cleaned.csv')
+NROW(S5Scores)
+NCOL(S5Scores)
+
+# entire dataset 
+wholeSet <- read_csv('logs.csv')
+NROW(wholeSet) 
+NCOL(wholeSet)
+```
+
+
+We want to see if the number of retries on minigames, avatar age and avatar gender have anything to do with the week S5 scores. 
+
+
+# Data Cleaning 
+
+
+```{r - Filtering, Message = FALSE}
+# creating the filtered data set
+
+# filter by demographics 
+age <- wholeSet %>% filter(!is.na(avatar_age)) 
+gender <- wholeSet %>% filter(!is.na(avatar_gender))
+demographics <- full_join(age, gender) 
+
+filterDems <- demographics %>% 
+  filter(!is.na(avatar_age)) %>% 
+  filter(!is.na(avatar_gender))%>% 
+  group_by(player_id) %>% summarize(mean(avatar_age), avatar_gender) 
+
+# filter by only the participants that have S5 scores
+filteredScores0 <- S5Scores %>% filter(!is.na(player_id)) %>% filter(weeks == 0)
+filteredScores3 <- S5Scores %>% filter(!is.na(player_id)) %>% filter(weeks == 3)
+filteredScores6 <- S5Scores %>% filter(!is.na(player_id)) %>% filter(weeks == 6)
+filteredScores <- full_join(filteredScores6, (full_join(filteredScores0, filteredScores3)))
+
+scoredParticipants <- filteredScores %>% select(player_id)
+demsAndScores <- full_join(filterDems, filteredScores) %>% 
+  filter(!is.na(S5_mean)) %>% 
+  filter(!is.na(`mean(avatar_age)`)) %>% 
+  filter(!is.na(avatar_gender))
+
+# creating our subset 
+scoredSubset <- wholeSet %>% semi_join(scoredParticipants)
+
+# counting retries 
+numRetries <- scoredSubset %>% group_by(player_id) %>% count(event_id == 1000) 
+numRetriesCleaned <- numRetries %>% filter(`event_id == 1000` == TRUE)
+
+# joining everything 
+filteredData <- full_join(demsAndScores, numRetriesCleaned)
+```
+
+
+## Visualizations
+
+
+**New data set**
+```{r}
+# new data set w some changes 
+dataChanges <- read_csv('data_w_changes.csv')
+dataToUse <- dataChanges %>% filter(weeks != 3)
+
+names(dataToUse) [1] <- "row" 
+names(dataToUse) [3] <- "avatar_age" 
+names(dataToUse) [7] <- "retried_minigame" 
+names(dataToUse) [8] <- "num_retries" 
+names(dataToUse) [9] <- "change_S5_6weeks" 
+```
+
+
+
+```{r - EDA}
+# score vs retires by avatar gender selected 
+filteredData %>%
+  ggplot(aes(x = n, y = S5_mean, color = avatar_gender)) +
+  geom_point() + 
+  facet_grid(.~weeks) + 
+  ggtitle('S5 Score vs Total Number of Retries') + 
+  labs(x = 'Number Minigame Retries', y = 'S5 Scores by Week')
+
+# distribution of number of retires by gender 
+filteredData %>% 
+  ggplot(aes(x = n, color = avatar_gender)) + 
+  geom_boxplot() + 
+  facet_grid(avatar_gender ~ .) + 
+  ggtitle('Distribution of Retries by Gender of Avatar') + 
+  labs(x = 'Number Minigame Retries')
+
+# linear regression and scatter plot 
+dataToUse %>% filter(weeks == 6) %>% 
+  ggplot(aes(x = num_retries, y = change_S5_6weeks, color = avatar_gender)) + 
+  geom_point() + 
+  geom_smooth(method = lm) + 
+  ggtitle('Change in S5 Score vs Retries in Game (weeks 0-6)') + 
+  labs(x = 'Number Minigame Retires', y = 'Week 0 - Week 6 Score')
+```
